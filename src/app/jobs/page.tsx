@@ -6,16 +6,17 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { GraduationCap, Briefcase, MapPin, Filter, Search, X, Menu } from "lucide-react"
+import { GraduationCap, MapPin, Filter, Search, Menu } from "lucide-react"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Fuse from "fuse.js"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTrigger, DialogTitle } from "@/components/ui/dialog"
+import { useRef } from "react"
+import { Dialog as DetailsDialog, DialogContent as DetailsDialogContent, DialogTitle as DetailsDialogTitle, DialogClose as DetailsDialogClose } from "@/components/ui/dialog"
 
 type Job = {
   id: string
@@ -23,9 +24,8 @@ type Job = {
   job_type: string
   location: string
   is_paid: boolean
-  is_project_team: boolean
   is_cornell_only: boolean
-  employer: { name: string }
+  employer: { id: string, name: string, logo?: string }
   description_short?: string
 }
 
@@ -34,16 +34,34 @@ type Major = {
   name: string
 }
 
-const jobTypes = ["Internship", "Full-Time", "Part-Time", "Research", "Freelance", "On-Campus", "Project Team"]
+const jobTypes = ["Internship", "Full-Time", "Part-Time", "Research", "Project Team", "On-Campus"]
 
-// Job type to icon/color mapping
+/*
+The gradients on the job boxes match the type of jobs. 
+Currently, the colors are:
+- Internship: Blue
+- Full-Time: Purple
+- Part-Time: Orange
+- Research: Indigo
+- Project Team: Teal
+- On-Campus: Red
+*/
 const jobTypeStyles: Record<string, { color: string; bgColor: string }> = {
   Internship: { color: "text-blue-800", bgColor: "bg-blue-100" },
   "Full-Time": { color: "text-purple-800", bgColor: "bg-purple-100" },
   "Part-Time": { color: "text-orange-800", bgColor: "bg-orange-100" },
   Research: { color: "text-indigo-800", bgColor: "bg-indigo-100" },
-  Freelance: { color: "text-teal-800", bgColor: "bg-teal-100" },
+  "Project Team": { color: "text-teal-800", bgColor: "bg-teal-100" },
   "On-Campus": { color: "text-red-800", bgColor: "bg-red-100" },
+}
+
+const jobTypeGradients: Record<string, string> = {
+  Internship: "from-blue-200 to-blue-400",
+  "Full-Time": "from-purple-200 to-purple-400",
+  "Part-Time": "from-orange-200 to-orange-400",
+  Research: "from-indigo-200 to-indigo-400",
+  "Project Team": "from-teal-200 to-teal-400",
+  "On-Campus": "from-red-200 to-red-400",
 }
 
 export default function JobPortal() {
@@ -54,15 +72,25 @@ export default function JobPortal() {
     jobTypes: [] as string[],
     isPaid: "all",
     location: "",
-    cornellOnly: false
+    cornellOnly: false,
+    preferences: [] as string[], 
   })
   const [searchTitle, setSearchTitle] = useState("")
-  const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [openMajor, setOpenMajor] = useState(false)
   const [openJobType, setOpenJobType] = useState(false)
   const [openCompensation, setOpenCompensation] = useState(false)
+  const [openPreferences, setOpenPreferences] = useState(false) // new
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
+  //These are the mobile filters that are open
+  const [openMajorMobile, setOpenMajorMobile] = useState(false)
+  const [openJobTypeMobile, setOpenJobTypeMobile] = useState(false)
+  const [openCompensationMobile, setOpenCompensationMobile] = useState(false)
+  const [openPreferencesMobile, setOpenPreferencesMobile] = useState(false)
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [selectedJobDetails, setSelectedJobDetails] = useState<any>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const scrollPosition = useRef(0)
 
   useEffect(() => {
     fetchMajors()
@@ -71,6 +99,38 @@ export default function JobPortal() {
   useEffect(() => {
     fetchJobs()
   }, [filters, searchTitle])
+
+  // Fetch full job details when selectedJobId changes
+  useEffect(() => {
+    async function fetchJobDetails() {
+      if (!selectedJobId) return
+      const { data, error } = await supabase
+        .from("jobs")
+        .select(`
+          id, title, job_type, location, is_paid, is_cornell_only, opt_cpt_friendly, pay, time_commitment, application_deadline, description_full, contact_name, contact_email, employer:employers(id, name, logo, description), job_majors:job_majors(major_id, majors(name))
+        `)
+        .eq("id", selectedJobId)
+        .single()
+      if (!error && data) setSelectedJobDetails(data)
+    }
+    if (selectedJobId) fetchJobDetails()
+  }, [selectedJobId])
+
+  // Open details and save scroll position
+  function openJobDetails(jobId: string) {
+    scrollPosition.current = window.scrollY
+    setSelectedJobId(jobId)
+    setDetailsOpen(true)
+  }
+
+  // Close details and restore scroll
+  function closeJobDetails() {
+    setDetailsOpen(false)
+    setTimeout(() => {
+      setSelectedJobId(null)
+      window.scrollTo(0, scrollPosition.current)
+    }, 200)
+  }
 
   async function fetchMajors() {
     const { data, error } = await supabase.from("majors").select("*")
@@ -94,13 +154,20 @@ export default function JobPortal() {
       }
       let query = supabase
         .from("jobs")
-        .select("id, title, job_type, location, is_paid, is_project_team, is_cornell_only, employer:employers(name), description_short")
+        .select("id, title, job_type, location, is_paid, is_cornell_only, employer:employers(id, name, logo), description_short")
         .order("created_at", { ascending: false })
       if (filters.jobTypes.length > 0) query = query.in("job_type", filters.jobTypes)
       if (filters.isPaid !== "all") query = query.eq("is_paid", filters.isPaid === "paid")
       if (filters.location) query = query.ilike("location", `%${filters.location}%`)
       if (filters.majors.length > 0 && jobIds.length > 0) query = query.in("id", jobIds)
       if (filters.cornellOnly) query = query.eq("is_cornell_only", true)
+      if (filters.preferences.includes("cornellOnly")) query = query.eq("is_cornell_only", true)
+      if (filters.preferences.includes("recruiterContact")) {
+        query = query.or('contact_email.not.is.null,contact_linkedin.not.is.null')
+      }
+      if (filters.preferences.includes("optCptFriendly")) {
+        query = query.eq("opt_cpt_friendly", true)
+      }
       const { data, error } = await query
       if (error) {
         console.error("❌ Supabase query error:", error)
@@ -147,13 +214,21 @@ export default function JobPortal() {
     handleFilterChange("jobTypes", newJobTypes)
   }
 
+  function togglePreference(pref: string) {
+    const newPrefs = filters.preferences.includes(pref)
+      ? filters.preferences.filter(p => p !== pref)
+      : [...filters.preferences, pref]
+    setFilters({ ...filters, preferences: newPrefs })
+  }
+
   function clearFilters() {
     setFilters({
       majors: [],
       jobTypes: [],
       isPaid: "all",
       location: "",
-      cornellOnly: false
+      cornellOnly: false,
+      preferences: [],
     })
   }
 
@@ -164,6 +239,7 @@ export default function JobPortal() {
     filters.isPaid !== "all" ? 1 : 0,
     filters.location ? 1 : 0,
     filters.cornellOnly ? 1 : 0,
+    filters.preferences.length,
   ].reduce((a, b) => a + b, 0)
 
   return (
@@ -175,25 +251,28 @@ export default function JobPortal() {
           <span className="ml-2 text-xl font-bold text-gray-900">Cracked@Cornell</span>
         </Link>
         {/* Desktop Nav */}
-        <nav className="ml-auto gap-4 sm:gap-6 hidden md:flex">
-          <Link href="/#features" className="text-sm font-medium hover:text-red-600 transition-colors">
-            Features
+        <nav className="ml-auto gap-4 sm:gap-6 hidden md:flex items-center">
+          <Link href="/#philosophy" className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors">
+            Our Philosophy
           </Link>
-          <Link href="/#opportunities" className="text-sm font-medium hover:text-red-600 transition-colors">
-            Opportunities
+          <Link href="/#employers" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Employers
           </Link>
-          <Link href="/#employers" className="text-sm font-medium hover:text-red-600 transition-colors">
-            For Employers
+          <Link href="/#students" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Students
           </Link>
+          <Link href="/#schools" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Schools
+          </Link>
+          <div className="flex gap-2">
+            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white">
+              Sign Up
+            </Button>
+            <Button variant="outline" size="sm" className="border-gray-300 hover:bg-gray-50">
+              Log In
+            </Button>
+          </div>
         </nav>
-        <div className="ml-6 gap-2 hidden md:flex">
-          <Button variant="ghost" size="sm">
-            Sign In
-          </Button>
-          <Button size="sm" className="bg-red-600 hover:bg-red-700">
-            Post a Job
-          </Button>
-        </div>
         {/* Hamburger for mobile */}
         <div className="ml-auto flex md:hidden">
           <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -203,26 +282,28 @@ export default function JobPortal() {
               </Button>
             </DialogTrigger>
             <DialogContent className="p-0 max-w-xs w-full">
+              <DialogTitle className="sr-only">Main Menu</DialogTitle>
               <div className="flex flex-col gap-4 p-6">
                 <Link href="/" className="flex items-center mb-4" onClick={() => setMobileNavOpen(false)}>
                   <GraduationCap className="h-7 w-7 text-red-600" />
                   <span className="ml-2 text-lg font-bold text-gray-900">Cracked@Cornell</span>
                 </Link>
                 <nav className="flex flex-col gap-3">
-                  <Link href="/#features" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    Features
+                  <Link href="/#philosophy" className="text-base font-medium text-red-600 hover:text-red-700 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Our Philosophy
                   </Link>
-                  <Link href="/#opportunities" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    Opportunities
+                  <Link href="/#employers" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Employers
                   </Link>
-                  <Link href="/#employers" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    For Employers
+                  <Link href="/#students" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Students
                   </Link>
+                  <Link href="/#schools" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Schools
+                  </Link>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 w-full text-white">Sign Up</Button>
+                  <Button variant="outline" size="sm" className="w-full border-gray-300 hover:bg-gray-50">Log In</Button>
                 </nav>
-                <div className="flex flex-col gap-2 mt-4">
-                  <Button variant="ghost" size="sm" className="w-full">Sign In</Button>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700 w-full">Post a Job</Button>
-                </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -237,7 +318,7 @@ export default function JobPortal() {
           </div>
         </div>
         {/* Mobile Filters Button */}
-        <div className="flex md:hidden mb-4">
+        <div className="flex lg:hidden mb-4">
           <Dialog open={mobileFilterOpen} onOpenChange={setMobileFilterOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full flex items-center gap-2 justify-center">
@@ -249,35 +330,34 @@ export default function JobPortal() {
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-sm w-full p-0">
-              <div className="p-6 flex flex-col gap-4">
+              <DialogTitle className="sr-only">Filters</DialogTitle>
+              <div className="p-6 flex flex-col gap-4 pt-10">
                 {/* All filter controls stacked vertically */}
                 <div className="flex flex-col gap-3">
-                  <label className="text-xs font-medium">Search</label>
                   <Input
                     type="text"
-                    placeholder="e.g. Data Science, Research"
+                    placeholder="Search"
                     value={searchTitle}
                     onChange={e => setSearchTitle(e.target.value)}
                     className="w-full bg-white"
                   />
                 </div>
                 <div className="flex flex-col gap-3">
-                  <label className="text-xs font-medium">Major</label>
-                  <Popover open={openMajor} onOpenChange={setOpenMajor}>
+                  <Popover open={openMajorMobile} onOpenChange={setOpenMajorMobile} modal={false}>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
-                        aria-expanded={openMajor}
-                        className="w-full justify-between"
+                        aria-expanded={openMajorMobile}
+                        className="w-full justify-between pr-8"
                       >
                         {filters.majors.length > 0
                           ? `${filters.majors.length} selected`
-                          : "Select majors..."}
+                          : "Majors"}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
+                    <PopoverContent className="min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
                       <Command>
                         <CommandInput placeholder="Search majors..." />
                         <CommandEmpty>No major found.</CommandEmpty>
@@ -304,22 +384,21 @@ export default function JobPortal() {
                   </Popover>
                 </div>
                 <div className="flex flex-col gap-3">
-                  <label className="text-xs font-medium">Job Type</label>
-                  <Popover open={openJobType} onOpenChange={setOpenJobType}>
+                  <Popover open={openJobTypeMobile} onOpenChange={setOpenJobTypeMobile} modal={false}>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
-                        aria-expanded={openJobType}
-                        className="w-full justify-between"
+                        aria-expanded={openJobTypeMobile}
+                        className="w-full justify-between pr-8"
                       >
                         {filters.jobTypes.length > 0
                           ? `${filters.jobTypes.length} selected`
-                          : "Select job types..."}
+                          : "Job Type"}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
+                    <PopoverContent className="min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
                       <Command>
                         <CommandInput placeholder="Search job types..." />
                         <CommandEmpty>No job type found.</CommandEmpty>
@@ -346,30 +425,29 @@ export default function JobPortal() {
                   </Popover>
                 </div>
                 <div className="flex flex-col gap-3">
-                  <label className="text-xs font-medium">Compensation</label>
-                  <Popover open={openCompensation} onOpenChange={setOpenCompensation}>
+                  <Popover open={openCompensationMobile} onOpenChange={setOpenCompensationMobile} modal={false}>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
-                        aria-expanded={openCompensation}
-                        className="w-full justify-between"
+                        aria-expanded={openCompensationMobile}
+                        className="w-full justify-between pr-8"
                       >
                         {filters.isPaid === "all"
-                          ? "All compensation types"
+                          ? "Pay Type"
                           : filters.isPaid === "paid"
                           ? "Paid only"
                           : "Unpaid only"}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
+                    <PopoverContent className="min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
                       <Command>
                         <CommandGroup>
                           <CommandItem
                             onSelect={() => {
                               handleFilterChange("isPaid", "all")
-                              setOpenCompensation(false)
+                              setOpenCompensationMobile(false)
                             }}
                           >
                             <Check
@@ -378,12 +456,12 @@ export default function JobPortal() {
                                 filters.isPaid === "all" ? "opacity-100" : "opacity-0"
                               )}
                             />
-                            All compensation types
+                            All comp types
                           </CommandItem>
                           <CommandItem
                             onSelect={() => {
                               handleFilterChange("isPaid", "paid")
-                              setOpenCompensation(false)
+                              setOpenCompensationMobile(false)
                             }}
                           >
                             <Check
@@ -397,7 +475,7 @@ export default function JobPortal() {
                           <CommandItem
                             onSelect={() => {
                               handleFilterChange("isPaid", "unpaid")
-                              setOpenCompensation(false)
+                              setOpenCompensationMobile(false)
                             }}
                           >
                             <Check
@@ -414,46 +492,116 @@ export default function JobPortal() {
                   </Popover>
                 </div>
                 <div className="flex flex-col gap-3">
-                  <label className="text-xs font-medium">Location</label>
+                  <Popover open={openPreferencesMobile} onOpenChange={setOpenPreferencesMobile} modal={false}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openPreferencesMobile}
+                        className="w-full justify-between pr-8"
+                      >
+                        {filters.preferences.length > 0
+                          ? `${filters.preferences.length} selected`
+                          : "Select preferences..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command>
+                        <CommandGroup>
+                          <CommandItem
+                            onSelect={() => {
+                              togglePreference("cornellOnly")
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                filters.preferences.includes("cornellOnly") ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            Cornell Only
+                          </CommandItem>
+                          <CommandItem
+                            onSelect={() => {
+                              togglePreference("recruiterContact")
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                filters.preferences.includes("recruiterContact") ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            Recruiter Contact
+                          </CommandItem>
+                          <CommandItem
+                            onSelect={() => {
+                              togglePreference("optCptFriendly")
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                filters.preferences.includes("optCptFriendly") ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            OPT/CPT Friendly
+                          </CommandItem>
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex flex-col gap-3">
                   <Input
                     className="w-full"
-                    placeholder="e.g. Remote, Ithaca"
+                    placeholder="Location"
                     value={filters.location}
                     onChange={e => handleFilterChange("location", e.target.value)}
                   />
                 </div>
                 <div className="flex justify-end mt-2">
-                  <Button variant="ghost" size="sm" onClick={clearFilters} className="text-xs">Clear</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      clearFilters();
+                      setSearchTitle("");
+                      setMobileFilterOpen(false);
+                    }}
+                    className="text-xs"
+                  >
+                    Clear
+                  </Button>
                 </div>
               </div>
             </DialogContent>
           </Dialog>
         </div>
         {/* Desktop Filters Row */}
-        <div className="bg-gray-50 border rounded-lg p-4 mb-8 flex flex-wrap gap-4 items-end hidden md:flex">
-          <div className="flex-1 min-w-[180px] flex flex-col">
-            <label className="block mb-1 text-xs font-medium">Search</label>
+        <div className="bg-gray-50 border rounded-lg p-4 mb-8 flex flex-nowrap gap-4 items-end hidden lg:flex overflow-x-auto">
+          <div className="flex-1 min-w-[140px] flex flex-col justify-end">
             <Input
               type="text"
-              placeholder="e.g. Data Science, Research"
+              placeholder="Search"
               value={searchTitle}
               onChange={e => setSearchTitle(e.target.value)}
               className="w-full bg-white"
             />
           </div>
-          <div className="min-w-[160px] flex flex-col">
-            <label className="block mb-1 text-xs font-medium">Major</label>
-            <Popover open={openMajor} onOpenChange={setOpenMajor}>
+          <div className="min-w-[120px] flex flex-col justify-end">
+            <Popover open={openMajor} onOpenChange={setOpenMajor} modal={false}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
                   role="combobox"
                   aria-expanded={openMajor}
-                  className="w-full justify-between"
+                  className="w-full justify-between pr-8"
                 >
                   {filters.majors.length > 0
                     ? `${filters.majors.length} selected`
-                    : "Select majors..."}
+                    : "Majors"}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
@@ -483,19 +631,18 @@ export default function JobPortal() {
               </PopoverContent>
             </Popover>
           </div>
-          <div className="min-w-[160px] flex flex-col">
-            <label className="block mb-1 text-xs font-medium">Job Type</label>
-            <Popover open={openJobType} onOpenChange={setOpenJobType}>
+          <div className="min-w-[120px] flex flex-col justify-end">
+            <Popover open={openJobType} onOpenChange={setOpenJobType} modal={false}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
                   role="combobox"
                   aria-expanded={openJobType}
-                  className="w-full justify-between"
+                  className="w-full justify-between pr-8"
                 >
                   {filters.jobTypes.length > 0
                     ? `${filters.jobTypes.length} selected`
-                    : "Select job types..."}
+                    : "Job Type"}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
@@ -525,18 +672,17 @@ export default function JobPortal() {
               </PopoverContent>
             </Popover>
           </div>
-          <div className="min-w-[160px] flex flex-col">
-            <label className="block mb-1 text-xs font-medium">Compensation</label>
-            <Popover open={openCompensation} onOpenChange={setOpenCompensation}>
+          <div className="min-w-[120px] flex flex-col justify-end">
+            <Popover open={openCompensation} onOpenChange={setOpenCompensation} modal={false}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
                   role="combobox"
                   aria-expanded={openCompensation}
-                  className="w-full justify-between"
+                  className="w-full justify-between pr-8"
                 >
                   {filters.isPaid === "all"
-                    ? "All compensation types"
+                    ? "Pay Type"
                     : filters.isPaid === "paid"
                     ? "Paid only"
                     : "Unpaid only"}
@@ -558,7 +704,7 @@ export default function JobPortal() {
                           filters.isPaid === "all" ? "opacity-100" : "opacity-0"
                         )}
                       />
-                      All compensation types
+                      All comp types
                     </CommandItem>
                     <CommandItem
                       onSelect={() => {
@@ -593,17 +739,88 @@ export default function JobPortal() {
               </PopoverContent>
             </Popover>
           </div>
-          <div className="min-w-[160px] flex flex-col">
-            <label className="block mb-1 text-xs font-medium">Location</label>
+          <div className="min-w-[120px] flex flex-col justify-end">
+            <Popover open={openPreferences} onOpenChange={setOpenPreferences} modal={false}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openPreferences}
+                  className="w-full justify-between pr-8"
+                >
+                  {filters.preferences.length > 0
+                    ? `${filters.preferences.length} selected`
+                    : "Preferences"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandGroup>
+                    <CommandItem
+                      onSelect={() => {
+                        togglePreference("cornellOnly")
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          filters.preferences.includes("cornellOnly") ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      Cornell Only
+                    </CommandItem>
+                    <CommandItem
+                      onSelect={() => {
+                        togglePreference("recruiterContact")
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          filters.preferences.includes("recruiterContact") ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      Recruiter Contact
+                    </CommandItem>
+                    <CommandItem
+                      onSelect={() => {
+                        togglePreference("optCptFriendly")
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          filters.preferences.includes("optCptFriendly") ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      OPT/CPT Friendly
+                    </CommandItem>
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="min-w-[120px] flex flex-col justify-end">
             <Input
               className="w-full"
-              placeholder="e.g. Remote, Ithaca"
+              placeholder="Location"
               value={filters.location}
               onChange={e => handleFilterChange("location", e.target.value)}
             />
           </div>
           <div className="flex items-end ml-auto">
-            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-xs">Clear</Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        clearFilters();
+                        setSearchTitle("");
+                      }}
+                      className="text-xs whitespace-nowrap"
+                    >
+                      Clear
+                    </Button>
           </div>
         </div>
 
@@ -624,15 +841,72 @@ export default function JobPortal() {
                 )}
               </div>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                 {jobs.map((job) => {
                   const typeStyle = jobTypeStyles[job.job_type] || { color: "text-gray-800", bgColor: "bg-gray-100" }
+                  const gradient = jobTypeGradients[job.job_type] || "from-gray-200 to-gray-400"
 
                   return (
-                    <Link key={job.id} href={`/jobs/${job.id}`} className="block">
-                      <Card className="h-full overflow-hidden hover:border-red-200 transition-colors">
-                        <div className="p-5 flex flex-col h-full">
-                          <h3 className="font-semibold text-lg mb-1">{job.title}</h3>
+                    <div
+                      key={job.id}
+                      className="block cursor-pointer"
+                      onClick={() => openJobDetails(job.id)}
+                    >
+                      <Card className="h-full overflow-hidden hover:border-red-200 transition-colors m-0 mt-0 p-0 pt-0">
+                        <div
+                          className={`relative w-full bg-gradient-to-br ${gradient} p-6 flex items-center justify-center m-0 mt-0 pt-0`}
+                          style={{ borderTopLeftRadius: '0.5rem', borderTopRightRadius: '0.5rem', minHeight: '140px', marginTop: 0, paddingTop: 0 }}
+                        >
+                          {/* Subtle overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+
+                          {/* Logo or Company Initial */}
+                          <div className="relative z-10 flex items-center justify-center mt-4">
+                            {job.employer?.logo ? (
+                              <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
+                                <img
+                                  src={job.employer.logo}
+                                  alt={`${job.employer.name} logo`}
+                                  className="h-16 w-16 md:h-20 md:w-20 object-contain"
+                                />
+                              </div>
+                            ) : (
+                              <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg flex items-center justify-center min-w-[80px] md:min-w-[96px]">
+                                <div className="text-center">
+                                  <div className="text-2xl md:text-3xl font-bold text-gray-800 mb-1">
+                                    {job.employer?.name?.charAt(0)?.toUpperCase() || 'C'}
+                                  </div>
+                                  <div className="text-xs font-medium text-gray-600 leading-tight">
+                                    {job.employer?.name?.split(' ').slice(0, 2).join(' ') || 'Company'}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Cornell Only Star Badge (if desired up here too) */}
+                          {false && job.is_cornell_only && (
+                            <div className="absolute top-4 right-4">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="bg-red-500 text-white p-2 rounded-full shadow-lg cursor-help">
+                                      <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.967a1 1 0 00.95.69h4.175c.969 0 1.371 1.24.588 1.81l-3.38 2.455a1 1 0 00-.364 1.118l1.287 3.966c.3.922-.755 1.688-1.54 1.118l-3.38-2.455a1 1 0 00-1.175 0l-3.38 2.455c-.784.57-1.838-.196-1.54-1.118l1.287-3.966a1 1 0 00-.364-1.118L2.05 9.394c-.783-.57-.38-1.81.588-1.81h4.175a1 1 0 00.95-.69l1.286-3.967z" />
+                                      </svg>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs text-center">
+                                    This opportunity is only available for Cornell students, reducing the possible applicant pool.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="px-5 pt-4 pb-5 flex flex-col h-full">
+                          <h3 className="font-semibold text-xl text-left mb-3">{job.title}</h3>
                           <div className="flex items-center mb-2 gap-2">
                             <Badge className={`${typeStyle.bgColor} ${typeStyle.color} border-0 w-fit`}>{job.job_type}</Badge>
                             {job.is_cornell_only && (
@@ -656,25 +930,26 @@ export default function JobPortal() {
                           {job.description_short && (
                             <p className="text-gray-700 text-sm mb-3 line-clamp-3">{job.description_short}</p>
                           )}
-                          <div className="flex items-center gap-1 text-gray-700 mb-1 mt-auto">
-                            <Briefcase className="h-4 w-4 text-gray-500" />
-                            <span className="text-sm">{job.employer?.name}</span>
-                          </div>
                           <div className="flex items-center gap-1 text-gray-600">
                             <MapPin className="h-4 w-4 text-gray-500" />
                             <span className="text-sm">{job.location}</span>
                           </div>
-                          <div className="pt-3 flex items-center gap-2">
+                          <div className="text-sm pt-3 flex items-center gap-2">
                             {job.is_paid ? (
                               <Badge className="bg-green-100 text-green-800 border-0">Paid</Badge>
                             ) : (
                               <Badge variant="outline" className="text-gray-600">Unpaid</Badge>
                             )}
-                            <span className="text-xs text-gray-500 ml-auto">View Details →</span>
+                            <span
+                              className="text-sm text-gray-500 ml-auto underline cursor-pointer"
+                              onClick={e => { e.stopPropagation(); openJobDetails(job.id) }}
+                            >
+                              View Details & Apply →
+                            </span>
                           </div>
                         </div>
                       </Card>
-                    </Link>
+                    </div>
                   )
                 })}
               </div>
@@ -682,6 +957,78 @@ export default function JobPortal() {
           </main>
         </div>
       </div>
+
+      {/* Job Details Drawer/Modal */}
+      <DetailsDialog open={detailsOpen} onOpenChange={open => { if (!open) closeJobDetails() }}>
+        <DetailsDialogContent
+          className={`p-0 ${typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'fixed right-0 top-0 h-full max-w-lg w-full rounded-none shadow-2xl' : ''}`}
+          style={typeof window !== 'undefined' && window.innerWidth >= 1024 ? { maxWidth: 480, width: '100vw', right: 0, top: 0, height: '100vh', borderRadius: 0, padding: 0 } : {}}
+        >
+          <DetailsDialogClose className="absolute right-4 top-4 z-10" />
+          {selectedJobDetails && (
+            <div className="overflow-y-auto max-h-screen lg:max-h-full">
+              {/* Employer Logo */}
+              <div className="flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-white pt-8 pb-4 px-6">
+                {selectedJobDetails.employer?.logo && (
+                  <img src={selectedJobDetails.employer.logo} alt={selectedJobDetails.employer.name} className="h-20 w-20 object-contain rounded-2xl mb-2" />
+                )}
+                <div className="text-xl font-bold text-gray-900 text-center">{selectedJobDetails.title}</div>
+                <div className="text-base text-gray-700 text-center mb-2">{selectedJobDetails.employer?.name}</div>
+              </div>
+              {/* Job Details Section */}
+              <div className="px-6 py-4 flex flex-col gap-2">
+                {selectedJobDetails.description_full && (
+                  <div className="mb-4 text-gray-800 whitespace-pre-line">{selectedJobDetails.description_full}</div>
+                )}
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {selectedJobDetails.job_majors?.map((jm: any) => (
+                    <Badge key={jm.major_id} className="bg-blue-100 text-blue-800">{jm.majors?.name}</Badge>
+                  ))}
+                  <Badge className={`${jobTypeStyles[selectedJobDetails.job_type]?.bgColor || 'bg-gray-100'} ${jobTypeStyles[selectedJobDetails.job_type]?.color || 'text-gray-800'}`}>{selectedJobDetails.job_type}</Badge>
+                  {selectedJobDetails.is_paid ? (
+                    <Badge className="bg-green-100 text-green-800">Paid</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-gray-600">Unpaid</Badge>
+                  )}
+                  {selectedJobDetails.pay && (
+                    <Badge className="bg-yellow-100 text-yellow-800">{selectedJobDetails.pay}</Badge>
+                  )}
+                  {selectedJobDetails.time_commitment && (
+                    <Badge className="bg-indigo-100 text-indigo-800">{selectedJobDetails.time_commitment}</Badge>
+                  )}
+                  {selectedJobDetails.application_deadline && (
+                    <Badge className="bg-red-100 text-red-800">Apply by {selectedJobDetails.application_deadline}</Badge>
+                  )}
+                  {selectedJobDetails.location && (
+                    <Badge className="bg-gray-100 text-gray-800"><MapPin className="inline h-4 w-4 mr-1" />{selectedJobDetails.location}</Badge>
+                  )}
+                  {selectedJobDetails.is_cornell_only && (
+                    <Badge className="bg-red-100 text-red-800">Cornell Only</Badge>
+                  )}
+                  {selectedJobDetails.opt_cpt_friendly && (
+                    <Badge className="bg-green-100 text-green-800">OPT/CPT Friendly</Badge>
+                  )}
+                </div>
+                {/* Contact Info */}
+                {(selectedJobDetails.contact_name || selectedJobDetails.contact_email) && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="font-semibold mb-1">Contact Information</div>
+                    {selectedJobDetails.contact_name && <div className="text-gray-800">{selectedJobDetails.contact_name}</div>}
+                    {selectedJobDetails.contact_email && <div className="text-blue-700 underline">{selectedJobDetails.contact_email}</div>}
+                  </div>
+                )}
+                {/* Employer Description */}
+                {selectedJobDetails.employer?.description && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="font-semibold mb-1">About {selectedJobDetails.employer.name}</div>
+                    <div className="text-gray-800 whitespace-pre-line">{selectedJobDetails.employer.description}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DetailsDialogContent>
+      </DetailsDialog>
 
       {/* Footer */}
       <footer className="mt-auto flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t bg-gray-50">

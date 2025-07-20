@@ -7,7 +7,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { GraduationCap, Building2, Users, Briefcase, Code, TrendingUp, MapPin, Clock, Filter, Search, X, Menu } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTrigger, DialogTitle } from "@/components/ui/dialog"
 import { useState } from "react"
 
 export default function CornellJobsLanding() {
@@ -23,25 +23,28 @@ export default function CornellJobsLanding() {
           <span className="ml-2 text-xl font-bold text-gray-900">Cracked@Cornell</span>
         </Link>
         {/* Desktop Nav */}
-        <nav className="ml-auto gap-4 sm:gap-6 hidden md:flex">
-          <Link href="/#features" className="text-sm font-medium hover:text-red-600 transition-colors">
-            Features
+        <nav className="ml-auto gap-4 sm:gap-6 hidden md:flex items-center">
+          <Link href="/#philosophy" className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors">
+            Our Philosophy
           </Link>
-          <Link href="/#opportunities" className="text-sm font-medium hover:text-red-600 transition-colors">
-            Opportunities
+          <Link href="/#employers" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Employers
           </Link>
-          <Link href="/#employers" className="text-sm font-medium hover:text-red-600 transition-colors">
-            For Employers
+          <Link href="/#students" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Students
           </Link>
+          <Link href="/#schools" className="text-sm font-medium text-gray-900 hover:text-red-600 transition-colors">
+            Schools
+          </Link>
+          <div className="flex gap-2">
+            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white">
+              Sign Up
+            </Button>
+            <Button variant="outline" size="sm" className="border-gray-300 hover:bg-gray-50">
+              Log In
+            </Button>
+          </div>
         </nav>
-        <div className="ml-6 gap-2 hidden md:flex">
-          <Button variant="ghost" size="sm">
-            Sign In
-          </Button>
-          <Button size="sm" className="bg-red-600 hover:bg-red-700">
-            Post a Job
-          </Button>
-        </div>
         {/* Hamburger for mobile */}
         <div className="ml-auto flex md:hidden">
           <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -51,26 +54,28 @@ export default function CornellJobsLanding() {
               </Button>
             </DialogTrigger>
             <DialogContent className="p-0 max-w-xs w-full">
+              <DialogTitle className="sr-only">Main Menu</DialogTitle>
               <div className="flex flex-col gap-4 p-6">
                 <Link href="/" className="flex items-center mb-4" onClick={() => setMobileNavOpen(false)}>
                   <GraduationCap className="h-7 w-7 text-red-600" />
                   <span className="ml-2 text-lg font-bold text-gray-900">Cracked@Cornell</span>
                 </Link>
                 <nav className="flex flex-col gap-3">
-                  <Link href="/#features" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    Features
+                  <Link href="/#philosophy" className="text-base font-medium text-red-600 hover:text-red-700 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Our Philosophy
                   </Link>
-                  <Link href="/#opportunities" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    Opportunities
+                  <Link href="/#employers" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Employers
                   </Link>
-                  <Link href="/#employers" className="text-base font-medium hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
-                    For Employers
+                  <Link href="/#students" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Students
                   </Link>
+                  <Link href="/#schools" className="text-base font-medium text-gray-900 hover:text-red-600 transition-colors" onClick={() => setMobileNavOpen(false)}>
+                    Schools
+                  </Link>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 w-full text-white">Sign Up</Button>
+                  <Button variant="outline" size="sm" className="w-full border-gray-300 hover:bg-gray-50">Log In</Button>
                 </nav>
-                <div className="flex flex-col gap-2 mt-4">
-                  <Button variant="ghost" size="sm" className="w-full">Sign In</Button>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700 w-full">Post a Job</Button>
-                </div>
               </div>
             </DialogContent>
           </Dialog>
