@@ -15,8 +15,6 @@ import { cn } from "@/lib/utils"
 import Fuse from "fuse.js"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogTrigger, DialogTitle } from "@/components/ui/dialog"
-import { useRef } from "react"
-import { Dialog as DetailsDialog, DialogContent as DetailsDialogContent, DialogTitle as DetailsDialogTitle, DialogClose as DetailsDialogClose } from "@/components/ui/dialog"
 
 type Job = {
   id: string
@@ -87,10 +85,6 @@ export default function JobPortal() {
   const [openJobTypeMobile, setOpenJobTypeMobile] = useState(false)
   const [openCompensationMobile, setOpenCompensationMobile] = useState(false)
   const [openPreferencesMobile, setOpenPreferencesMobile] = useState(false)
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [selectedJobDetails, setSelectedJobDetails] = useState<any>(null)
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const scrollPosition = useRef(0)
 
   useEffect(() => {
     fetchMajors()
@@ -99,38 +93,6 @@ export default function JobPortal() {
   useEffect(() => {
     fetchJobs()
   }, [filters, searchTitle])
-
-  // Fetch full job details when selectedJobId changes
-  useEffect(() => {
-    async function fetchJobDetails() {
-      if (!selectedJobId) return
-      const { data, error } = await supabase
-        .from("jobs")
-        .select(`
-          id, title, job_type, location, is_paid, is_cornell_only, opt_cpt_friendly, pay, time_commitment, application_deadline, description_full, contact_name, contact_email, employer:employers(id, name, logo, description), job_majors:job_majors(major_id, majors(name))
-        `)
-        .eq("id", selectedJobId)
-        .single()
-      if (!error && data) setSelectedJobDetails(data)
-    }
-    if (selectedJobId) fetchJobDetails()
-  }, [selectedJobId])
-
-  // Open details and save scroll position
-  function openJobDetails(jobId: string) {
-    scrollPosition.current = window.scrollY
-    setSelectedJobId(jobId)
-    setDetailsOpen(true)
-  }
-
-  // Close details and restore scroll
-  function closeJobDetails() {
-    setDetailsOpen(false)
-    setTimeout(() => {
-      setSelectedJobId(null)
-      window.scrollTo(0, scrollPosition.current)
-    }, 200)
-  }
 
   async function fetchMajors() {
     const { data, error } = await supabase.from("majors").select("*")
@@ -847,11 +809,7 @@ export default function JobPortal() {
                   const gradient = jobTypeGradients[job.job_type] || "from-gray-200 to-gray-400"
 
                   return (
-                    <div
-                      key={job.id}
-                      className="block cursor-pointer"
-                      onClick={() => openJobDetails(job.id)}
-                    >
+                    <Link key={job.id} href={`/jobs/${job.id}`} className="block">
                       <Card className="h-full overflow-hidden hover:border-red-200 transition-colors m-0 mt-0 p-0 pt-0">
                         <div
                           className={`relative w-full bg-gradient-to-br ${gradient} p-6 flex items-center justify-center m-0 mt-0 pt-0`}
@@ -940,16 +898,11 @@ export default function JobPortal() {
                             ) : (
                               <Badge variant="outline" className="text-gray-600">Unpaid</Badge>
                             )}
-                            <span
-                              className="text-sm text-gray-500 ml-auto underline cursor-pointer"
-                              onClick={e => { e.stopPropagation(); openJobDetails(job.id) }}
-                            >
-                              View Details & Apply →
-                            </span>
+                            <span className="text-sm text-gray-500 ml-auto">View Details & Apply →</span>
                           </div>
                         </div>
                       </Card>
-                    </div>
+                    </Link>
                   )
                 })}
               </div>
@@ -957,78 +910,6 @@ export default function JobPortal() {
           </main>
         </div>
       </div>
-
-      {/* Job Details Drawer/Modal */}
-      <DetailsDialog open={detailsOpen} onOpenChange={open => { if (!open) closeJobDetails() }}>
-        <DetailsDialogContent
-          className={`p-0 ${typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'fixed right-0 top-0 h-full max-w-lg w-full rounded-none shadow-2xl' : ''}`}
-          style={typeof window !== 'undefined' && window.innerWidth >= 1024 ? { maxWidth: 480, width: '100vw', right: 0, top: 0, height: '100vh', borderRadius: 0, padding: 0 } : {}}
-        >
-          <DetailsDialogClose className="absolute right-4 top-4 z-10" />
-          {selectedJobDetails && (
-            <div className="overflow-y-auto max-h-screen lg:max-h-full">
-              {/* Employer Logo */}
-              <div className="flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-white pt-8 pb-4 px-6">
-                {selectedJobDetails.employer?.logo && (
-                  <img src={selectedJobDetails.employer.logo} alt={selectedJobDetails.employer.name} className="h-20 w-20 object-contain rounded-2xl mb-2" />
-                )}
-                <div className="text-xl font-bold text-gray-900 text-center">{selectedJobDetails.title}</div>
-                <div className="text-base text-gray-700 text-center mb-2">{selectedJobDetails.employer?.name}</div>
-              </div>
-              {/* Job Details Section */}
-              <div className="px-6 py-4 flex flex-col gap-2">
-                {selectedJobDetails.description_full && (
-                  <div className="mb-4 text-gray-800 whitespace-pre-line">{selectedJobDetails.description_full}</div>
-                )}
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {selectedJobDetails.job_majors?.map((jm: any) => (
-                    <Badge key={jm.major_id} className="bg-blue-100 text-blue-800">{jm.majors?.name}</Badge>
-                  ))}
-                  <Badge className={`${jobTypeStyles[selectedJobDetails.job_type]?.bgColor || 'bg-gray-100'} ${jobTypeStyles[selectedJobDetails.job_type]?.color || 'text-gray-800'}`}>{selectedJobDetails.job_type}</Badge>
-                  {selectedJobDetails.is_paid ? (
-                    <Badge className="bg-green-100 text-green-800">Paid</Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-gray-600">Unpaid</Badge>
-                  )}
-                  {selectedJobDetails.pay && (
-                    <Badge className="bg-yellow-100 text-yellow-800">{selectedJobDetails.pay}</Badge>
-                  )}
-                  {selectedJobDetails.time_commitment && (
-                    <Badge className="bg-indigo-100 text-indigo-800">{selectedJobDetails.time_commitment}</Badge>
-                  )}
-                  {selectedJobDetails.application_deadline && (
-                    <Badge className="bg-red-100 text-red-800">Apply by {selectedJobDetails.application_deadline}</Badge>
-                  )}
-                  {selectedJobDetails.location && (
-                    <Badge className="bg-gray-100 text-gray-800"><MapPin className="inline h-4 w-4 mr-1" />{selectedJobDetails.location}</Badge>
-                  )}
-                  {selectedJobDetails.is_cornell_only && (
-                    <Badge className="bg-red-100 text-red-800">Cornell Only</Badge>
-                  )}
-                  {selectedJobDetails.opt_cpt_friendly && (
-                    <Badge className="bg-green-100 text-green-800">OPT/CPT Friendly</Badge>
-                  )}
-                </div>
-                {/* Contact Info */}
-                {(selectedJobDetails.contact_name || selectedJobDetails.contact_email) && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                    <div className="font-semibold mb-1">Contact Information</div>
-                    {selectedJobDetails.contact_name && <div className="text-gray-800">{selectedJobDetails.contact_name}</div>}
-                    {selectedJobDetails.contact_email && <div className="text-blue-700 underline">{selectedJobDetails.contact_email}</div>}
-                  </div>
-                )}
-                {/* Employer Description */}
-                {selectedJobDetails.employer?.description && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                    <div className="font-semibold mb-1">About {selectedJobDetails.employer.name}</div>
-                    <div className="text-gray-800 whitespace-pre-line">{selectedJobDetails.employer.description}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </DetailsDialogContent>
-      </DetailsDialog>
 
       {/* Footer */}
       <footer className="mt-auto flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t bg-gray-50">
