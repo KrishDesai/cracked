@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { GraduationCap, MapPin, Filter, Search, Menu } from "lucide-react"
+import { GraduationCap, MapPin, Filter, Search, Menu, XIcon } from "lucide-react"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronsUpDown } from "lucide-react"
@@ -85,6 +85,10 @@ export default function JobPortal() {
   const [openJobTypeMobile, setOpenJobTypeMobile] = useState(false)
   const [openCompensationMobile, setOpenCompensationMobile] = useState(false)
   const [openPreferencesMobile, setOpenPreferencesMobile] = useState(false)
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [selectedJobDetails, setSelectedJobDetails] = useState<any>(null)
+  const [jobDetailsLoading, setJobDetailsLoading] = useState(false)
+  const [scrollPosition, setScrollPosition] = useState<number | null>(null)
 
   useEffect(() => {
     fetchMajors()
@@ -93,6 +97,57 @@ export default function JobPortal() {
   useEffect(() => {
     fetchJobs()
   }, [filters, searchTitle])
+
+  // Fetch full job details when selectedJobId changes
+  useEffect(() => {
+    if (!selectedJobId) {
+      setSelectedJobDetails(null)
+      return
+    }
+    setJobDetailsLoading(true)
+    async function fetchJobDetails() {
+      // Fetch job details with all required fields
+      const { data: job, error } = await supabase
+        .from("jobs")
+        .select(`
+          *,
+          employer:employers(id, name, logo, description),
+          job_majors:job_majors(job_id, major:majors(id, name))
+        `)
+        .eq("id", selectedJobId)
+        .single()
+      setJobDetailsLoading(false)
+      if (error || !job) {
+        setSelectedJobDetails(null)
+        return
+      }
+      setSelectedJobDetails(job)
+    }
+    fetchJobDetails()
+  }, [selectedJobId])
+
+  // Restore scroll on dialog close
+  useEffect(() => {
+    if (!selectedJobId && scrollPosition !== null) {
+      window.scrollTo({ top: scrollPosition })
+      setScrollPosition(null)
+    }
+  }, [selectedJobId])
+
+  // After the useEffect for fetching job details and restoring scroll
+  useEffect(() => {
+    if (selectedJobId) {
+      // Prevent background scroll
+      document.body.style.overflow = 'hidden';
+    } else {
+      // Restore scroll
+      document.body.style.overflow = '';
+    }
+    // Clean up in case component unmounts
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedJobId]);
 
   async function fetchMajors() {
     const { data, error } = await supabase.from("majors").select("*")
@@ -786,7 +841,8 @@ export default function JobPortal() {
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6">
+        {/* Scrollable grid+drawer area */}
+        <div className="flex flex-col lg:flex-row gap-6 relative flex-1 overflow-y-auto" style={{ height: 'calc(100vh - 220px)' }}>
           {/* Job Listings */}
           <main className="flex-1">
             {jobs.length === 0 ? (
@@ -803,13 +859,15 @@ export default function JobPortal() {
                 )}
               </div>
             ) : (
-              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 transition-all duration-300">
                 {jobs.map((job) => {
                   const typeStyle = jobTypeStyles[job.job_type] || { color: "text-gray-800", bgColor: "bg-gray-100" }
                   const gradient = jobTypeGradients[job.job_type] || "from-gray-200 to-gray-400"
-
                   return (
-                    <Link key={job.id} href={`/jobs/${job.id}`} className="block">
+                    <div key={job.id} className="block cursor-pointer" onClick={() => {
+                      setScrollPosition(window.scrollY)
+                      setSelectedJobId(job.id)
+                    }}>
                       <Card className="h-full overflow-hidden hover:border-red-200 transition-colors m-0 mt-0 p-0 pt-0">
                         <div
                           className={`relative w-full bg-gradient-to-br ${gradient} p-6 flex items-center justify-center m-0 mt-0 pt-0`}
@@ -902,12 +960,115 @@ export default function JobPortal() {
                           </div>
                         </div>
                       </Card>
-                    </Link>
+                    </div>
                   )
                 })}
               </div>
             )}
           </main>
+          {/* Job Details Drawer (desktop & mobile) */}
+          {selectedJobId && (
+            <div
+              className="hidden lg:block fixed right-0 top-[140px] bottom-[80px] h-auto overflow-y-auto w-[80%] min-w-[400px] max-w-[700px] z-30 bg-white shadow-2xl border-l transition-transform duration-300 rounded-lg"
+              style={{ transform: selectedJobId ? 'translateX(0)' : 'translateX(100%)' }}
+              role="dialog"
+              aria-label="Job Details"
+              tabIndex={-1}
+            >
+              <button
+                className="absolute top-4 right-4 z-40 p-2 rounded-full hover:bg-gray-100 focus:outline-none"
+                aria-label="Close job details"
+                onClick={() => setSelectedJobId(null)}
+              >
+                <XIcon className="h-6 w-6" />
+              </button>
+              <div className="p-8 pt-12">
+                {jobDetailsLoading ? (
+                  <div className="p-8 text-center text-gray-500">Loading...</div>
+                ) : selectedJobDetails ? (
+                  <div className="flex flex-col gap-6">
+                    {/* Employer Logo */}
+                    <div className="flex flex-col items-center gap-2">
+                      {selectedJobDetails.employer?.logo && (
+                        <img src={selectedJobDetails.employer.logo} alt="Employer Logo" className="h-20 w-20 object-contain rounded-2xl shadow" />
+                      )}
+                      <div className="text-lg font-bold text-center">{selectedJobDetails.title}</div>
+                      <div className="text-gray-700 text-center">{selectedJobDetails.employer?.name}</div>
+                      {selectedJobDetails.job_link && (
+                        <a
+                          href={selectedJobDetails.job_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block mb-2 px-6 py-2 bg-red-600 text-white font-semibold rounded-lg shadow hover:bg-red-700 transition-colors text-center"
+                        >
+                          Apply
+                        </a>
+                      )}
+                    </div>
+                    {/* Job Details Section */}
+                    <div className="flex flex-col gap-2 border-t pt-4">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <Badge className="text-md">{selectedJobDetails.job_type}</Badge>
+                        {selectedJobDetails.is_paid ? (
+                          <Badge className="bg-green-100 text-green-800 border-0 text-md">Paid{selectedJobDetails.pay ? `: $${selectedJobDetails.pay}` : ''}</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-gray-600 text-md">Unpaid</Badge>
+                        )}
+                        {selectedJobDetails.is_cornell_only && (
+                          <Badge className="bg-red-100 text-red-800 border-0 text-md">Cornell Only</Badge>
+                        )}
+                        {selectedJobDetails.opt_cpt_friendly && (
+                          <Badge className="bg-blue-100 text-blue-800 border-0 text-md">OPT/CPT Friendly</Badge>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center text-md text-gray-700">
+                        {selectedJobDetails.time_commitment && (
+                          <span><b>Time:</b> {selectedJobDetails.time_commitment}</span>
+                        )}
+                        {selectedJobDetails.application_deadline && (
+                          <span><b>Deadline:</b> {selectedJobDetails.application_deadline}</span>
+                        )}
+                        <span><b>Location:</b> {selectedJobDetails.location}</span>
+                      </div>
+                      {selectedJobDetails.job_majors?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 items-center text-md">
+                          <b>Majors:</b>
+                          {selectedJobDetails.job_majors.map((jm: any) => (
+                            <Badge key={jm.major.id}>{jm.major.name}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <hr className="border-gray-200" />
+                    {/* Description */}
+                    {selectedJobDetails.description_full && (
+                      <>
+                        <div className="font-bold text-md">Description</div>
+                        <div className="text-gray-800 whitespace-pre-line">{selectedJobDetails.description_full}</div>
+                      </>
+                    )}
+                    {/* Contact Info */}
+                    {(selectedJobDetails.contact_name || selectedJobDetails.contact_email) && (
+                      <div className="border-t pt-4">
+                        <div className="font-semibold mb-1">Contact Information</div>
+                        {selectedJobDetails.contact_name && <div>Name: {selectedJobDetails.contact_name}</div>}
+                        {selectedJobDetails.contact_email && <div>Email: <a href={`mailto:${selectedJobDetails.contact_email}`} className="text-blue-600 underline">{selectedJobDetails.contact_email}</a></div>}
+                      </div>
+                    )}
+                    {/* Employer Description */}
+                    {selectedJobDetails.employer?.description && (
+                      <div className="border-t pt-4">
+                        <div className="font-semibold mb-1">About {selectedJobDetails.employer.name}</div>
+                        <div className="text-gray-700 whitespace-pre-line">{selectedJobDetails.employer.description}</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-gray-500">No details found.</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
