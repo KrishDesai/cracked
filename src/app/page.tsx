@@ -124,9 +124,9 @@ export default function CornellJobsLanding() {
               <div className="flex items-center justify-center">
                 <div className="relative">
                   <Image
-                    src="/placeholder.svg?height=400&width=400"
-                    width="400"
-                    height="400"
+                    src="/images/cover.png"
+                    width="800"
+                    height="800"
                     alt="Cornell students working"
                     className="mx-auto aspect-square overflow-hidden rounded-xl object-cover"
                   />
@@ -302,10 +302,10 @@ export default function CornellJobsLanding() {
                 </div>
               </div>
               <Image
-                src="/placeholder.svg?height=400&width=500"
-                width="500"
-                height="400"
-                alt="Employers hiring Cornell students"
+                src="/images/cornell_image.jpg"
+                width="800"
+                height="600"
+                alt="Cornell University"
                 className="mx-auto aspect-video overflow-hidden rounded-xl object-cover"
               />
             </div>
