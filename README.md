@@ -17,3 +17,4 @@ pnpm dev
 # or
 bun dev
 ```
+<img width="409" height="756" alt="537103994-bf69b777-cec4-4b8c-8dd4-6d437c79a1c2" src="https://github.com/user-attachments/assets/20fe3efe-5e79-4fb8-961a-2582b9022087" />
